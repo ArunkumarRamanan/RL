@@ -1,0 +1,28 @@
+# spot-monitor.service - Systemd service for EC2 Spot Termination Monitor
+#
+# Installation:
+#   1. Copy this file to /etc/systemd/system/spot-monitor.service
+#   2. Run: sudo systemctl daemon-reload
+#   3. Run: sudo systemctl enable spot-monitor
+#   4. Run: sudo systemctl start spot-monitor
+#
+# This should run alongside nemo-opd.service
+
+[Unit]
+Description=EC2 Spot Instance Termination Monitor
+After=nemo-opd.service
+BindsTo=nemo-opd.service
+
+[Service]
+Type=simple
+User=root
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Run the spot monitor script
+ExecStart=/home/ubuntu/spot_monitor.sh nemo-opd
+
+[Install]
+WantedBy=multi-user.target

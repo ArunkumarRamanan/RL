@@ -1,0 +1,119 @@
+# nemo-opd.service - Systemd service template for NeMo OPD Training
+# 
+# Installation:
+#   1. Copy this file to /etc/systemd/system/nemo-opd.service
+#   2. Edit the Environment= lines for your instance
+#   3. Run: sudo systemctl daemon-reload
+#   4. Run: sudo systemctl enable nemo-opd
+#   5. Run: sudo systemctl start nemo-opd
+#
+# Monitoring:
+#   - Logs: sudo journalctl -u nemo-opd -f
+#   - Status: sudo systemctl status nemo-opd
+
+[Unit]
+Description=NeMo-RL On-Policy Distillation Training Service
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+
+# Restart policy - restart on failure with backoff
+Restart=on-failure
+RestartSec=60
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+# Timeouts
+TimeoutStartSec=900
+TimeoutStopSec=180
+
+# ============================================
+# INSTANCE-SPECIFIC CONFIGURATION
+# Uncomment and modify ONE of the config blocks below
+# ============================================
+
+# --- H200 #1: Qwen3-32B → Qwen3-4B-Base ---
+Environment="JOB_NAME=opd-h200-1-32b-to-4b"
+Environment="CONFIG_FILE=examples/configs/recipes/llm/distillation-qwen3-32b-to-4b-base-1n8g-fsdp2tp2-dynamicbatch.v1.yaml"
+Environment="HF_REPO=arunkumarvr/deepbrainz-r1-4b-math-reasoning"
+Environment="MODEL_NAME=deepbrainz-r1-4b-math-reasoning"
+Environment="EXTRA_OVERRIDES="
+
+# --- H200 #2: Qwen3-32B → Qwen3-1.7B-Base ---
+# Environment="JOB_NAME=opd-h200-2-32b-to-1.7b"
+# Environment="CONFIG_FILE=examples/configs/recipes/llm/distillation-qwen3-32b-to-1.7b-base-1n8g-fsdp2tp1.v1.yaml"
+# Environment="HF_REPO=arunkumarvr/deepbrainz-r1-1.7b-math-reasoning"
+# Environment="MODEL_NAME=deepbrainz-r1-1.7b-math-reasoning"
+# Environment="EXTRA_OVERRIDES="
+
+# --- A100-80GB: Qwen3-32B → Qwen3-4B-Base (adjusted for A100) ---
+# Environment="JOB_NAME=opd-a100-80-32b-to-4b"
+# Environment="CONFIG_FILE=examples/configs/recipes/llm/distillation-qwen3-32b-to-4b-base-1n8g-fsdp2tp2-dynamicbatch.v1.yaml"
+# Environment="HF_REPO=arunkumarvr/deepbrainz-r1-4b-math-v2"
+# Environment="MODEL_NAME=deepbrainz-r1-4b-math-v2"
+# Environment="EXTRA_OVERRIDES=teacher.dtensor_cfg.tensor_parallel_size=4 policy.generation.vllm_cfg.gpu_memory_utilization=0.5"
+
+# --- A100-40GB: Qwen3-4B → Qwen3-1.7B-Base (smaller teacher) ---
+# Environment="JOB_NAME=opd-a100-40-4b-to-1.7b"
+# Environment="CONFIG_FILE=examples/configs/distillation_math.yaml"
+# Environment="HF_REPO=arunkumarvr/deepbrainz-r1-1.7b-math-lite"
+# Environment="MODEL_NAME=deepbrainz-r1-1.7b-math-lite"
+# Environment="EXTRA_OVERRIDES="
+
+# ============================================
+# CREDENTIALS (REQUIRED - fill in your keys)
+# ============================================
+Environment="WANDB_API_KEY=YOUR_WANDB_API_KEY_HERE"
+Environment="HF_TOKEN=YOUR_HF_TOKEN_HERE"
+
+# ============================================
+# TRAINING PARAMETERS (optional overrides)
+# ============================================
+Environment="MAX_STEPS=2000"
+Environment="VAL_PERIOD=25"
+Environment="SAVE_PERIOD=25"
+
+# ============================================
+# CONTAINER CONFIGURATION
+# ============================================
+Environment="CONTAINER_NAME=nemo-opd"
+Environment="NRL_IMAGE=nvcr.io/nvidia/nemo-rl:v0.4.0"
+
+# Pre-start: Clean up any existing container
+ExecStartPre=-/usr/bin/docker rm -f nemo-opd
+
+# Main command: Run training in container
+ExecStart=/usr/bin/docker run \
+    --name nemo-opd \
+    --gpus all \
+    --ipc=host \
+    --ulimit memlock=-1 \
+    --ulimit stack=67108864 \
+    --network=host \
+    -e NVIDIA_VISIBLE_DEVICES=all \
+    -e WANDB_API_KEY \
+    -e HF_TOKEN \
+    -e JOB_NAME \
+    -e CONFIG_FILE \
+    -e HF_REPO \
+    -e MODEL_NAME \
+    -e MAX_STEPS \
+    -e VAL_PERIOD \
+    -e SAVE_PERIOD \
+    -e EXTRA_OVERRIDES \
+    -v /mnt/ckpt:/mnt/ckpt \
+    -v /home/ubuntu/run_opd.sh:/home/ubuntu/run_opd.sh:ro \
+    -v /home/ubuntu/upload_to_hf.sh:/home/ubuntu/upload_to_hf.sh:ro \
+    -w /opt/nemo-rl \
+    ${NRL_IMAGE} \
+    bash /home/ubuntu/run_opd.sh
+
+# Stop command: Graceful container shutdown
+ExecStop=/usr/bin/docker stop -t 120 nemo-opd
+
+[Install]
+WantedBy=multi-user.target
